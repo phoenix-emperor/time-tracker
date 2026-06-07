@@ -218,7 +218,7 @@ export default function Home() {
   };
 
   return (
-    <div className="layout-container">
+    <div className={`layout-container ${selectedTask ? "has-selected-task" : ""}`}>
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-header">
@@ -310,6 +310,9 @@ export default function Home() {
           </div>
         ) : (
           <div className="timer-panel">
+            <button className="mobile-back-btn" onClick={() => setSelectedTask(null)}>
+              ← Back to Tasks
+            </button>
             <div className="timer-task-info">
               <span className="timer-emoji">{selectedTask.emoji || "🕒"}</span>
               <div className="timer-name">{selectedTask.name}</div>
