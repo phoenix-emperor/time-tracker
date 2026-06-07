@@ -444,6 +444,27 @@ input:focus {
   border-bottom: none;
 }
 
+/* Mobile Back Button Base */
+.mobile-back-btn {
+  display: none;
+  margin-bottom: 1.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-glass);
+  padding: 0.5rem 1rem;
+  color: var(--text-primary);
+  border-radius: 8px;
+  cursor: pointer;
+  align-items: center;
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.mobile-back-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent);
+}
+
 /* Mobile Responsiveness */
 @media (max-width: 768px) {
   .layout-container {
@@ -495,24 +516,4 @@ input:focus {
   .timer-emoji {
     font-size: 2.5rem;
   }
-}
-
-.mobile-back-btn {
-  display: none;
-  margin-bottom: 1.5rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-glass);
-  padding: 0.5rem 1rem;
-  color: var(--text-primary);
-  border-radius: 8px;
-  cursor: pointer;
-  align-items: center;
-  font-size: 0.9rem;
-  font-family: inherit;
-  transition: all 0.2s;
-}
-
-.mobile-back-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: var(--accent);
 }
