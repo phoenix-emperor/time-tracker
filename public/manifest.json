@@ -1,0 +1,17 @@
+{
+  "name": "Time Tracker",
+  "short_name": "TimeTrack",
+  "description": "Premium Time Tracker",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
