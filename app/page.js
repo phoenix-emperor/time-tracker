@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { getTasks, createTask, deleteTask, createSession, endSession, getSessionsForTask, addManualSession, updateSession, deleteSession } from "@/lib/db";
+import { getTasks, createTask, deleteTask, createSession, endSession, getSessionsForTask, addManualSession, updateSession, deleteSession, getAllSessions } from "@/lib/db";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 
 const AVAILABLE_EMOJIS = ["🕒", "🚀", "💻", "📚", "🎨", "🎵", "🏋️", "🧘", "🔧", "🍳", "🎮", "📝", "📊", "📞", "🤝", "💡"];
 
@@ -27,13 +28,25 @@ export default function Home() {
 
   // Sessions and stats state
   const [sessions, setSessions] = useState([]);
+  const [allSessions, setAllSessions] = useState([]);
   const [stats, setStats] = useState({ today: 0, week: 0, month: 0, year: 0 });
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+
+  // Chart state
+  const [lookbackDays, setLookbackDays] = useState(7); 
+  const lookbackOptions = [
+    { label: "7 Days", value: 7 },
+    { label: "30 Days", value: 30 },
+    { label: "3 Months", value: 90 },
+    { label: "6 Months", value: 180 },
+    { label: "1 Year", value: 365 },
+    { label: "All Time", value: 'all' },
+  ];
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isModalSubmitting, setIsModalSubmitting] = useState(false);
-  const [modalMode, setModalMode] = useState("add"); // "add" or "edit"
+  const [modalMode, setModalMode] = useState("add"); 
   const [modalSessionId, setModalSessionId] = useState(null);
   const [modalDatetime, setModalDatetime] = useState("");
   const [modalDuration, setModalDuration] = useState("");
@@ -53,6 +66,33 @@ export default function Home() {
     loadTasks();
   }, []);
 
+  const calculateStats = useCallback((sessionList) => {
+    const now = new Date();
+    let d_today = 0, d_week = 0, d_month = 0, d_year = 0;
+    
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    sessionList.forEach(s => {
+      if (!s.duration_ms) return;
+      const sDate = new Date(s.started_at);
+      const ms = s.duration_ms;
+      
+      if (sDate.toDateString() === now.toDateString()) d_today += ms;
+      if (sDate >= startOfWeek) d_week += ms;
+      if (sDate.getMonth() === now.getMonth() && sDate.getFullYear() === now.getFullYear()) d_month += ms;
+      if (sDate.getFullYear() === now.getFullYear()) d_year += ms;
+    });
+    
+    setStats({
+      today: d_today,
+      week: d_week,
+      month: d_month,
+      year: d_year
+    });
+  }, []);
+
   const loadSessions = useCallback(async (taskId) => {
     if (!taskId) return;
     setIsLoadingSessions(true);
@@ -60,46 +100,35 @@ export default function Home() {
       const data = await getSessionsForTask(taskId);
       const validSessions = data || [];
       setSessions(validSessions);
-      
-      const now = new Date();
-      let d_today = 0, d_week = 0, d_month = 0, d_year = 0;
-      
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - now.getDay());
-      startOfWeek.setHours(0, 0, 0, 0);
-
-      validSessions.forEach(s => {
-        if (!s.duration_ms) return;
-        const sDate = new Date(s.started_at);
-        const hours = s.duration_ms / (1000 * 60 * 60);
-        
-        if (sDate.toDateString() === now.toDateString()) d_today += hours;
-        if (sDate >= startOfWeek) d_week += hours;
-        if (sDate.getMonth() === now.getMonth() && sDate.getFullYear() === now.getFullYear()) d_month += hours;
-        if (sDate.getFullYear() === now.getFullYear()) d_year += hours;
-      });
-      
-      setStats({
-        today: Number(d_today.toFixed(2)),
-        week: Number(d_week.toFixed(2)),
-        month: Number(d_month.toFixed(2)),
-        year: Number(d_year.toFixed(2))
-      });
+      calculateStats(validSessions);
     } catch (error) {
       console.error("Error fetching sessions:", error);
     } finally {
       setIsLoadingSessions(false);
     }
-  }, []);
+  }, [calculateStats]);
 
   useEffect(() => {
     if (selectedTask) {
       loadSessions(selectedTask.id);
     } else {
       setSessions([]);
-      setStats({ today: 0, week: 0, month: 0, year: 0 });
+      async function fetchAll() {
+        setIsLoadingSessions(true);
+        try {
+          const data = await getAllSessions();
+          const valid = data || [];
+          setAllSessions(valid);
+          calculateStats(valid);
+        } catch (e) {
+          console.error("Error fetching all sessions", e);
+        } finally {
+          setIsLoadingSessions(false);
+        }
+      }
+      fetchAll();
     }
-  }, [selectedTask, loadSessions]);
+  }, [selectedTask, loadSessions, calculateStats]);
 
   const handleAddTask = async (e) => {
     e.preventDefault();
@@ -161,6 +190,98 @@ export default function Home() {
     }
     return `${pad(minutes)}:${pad(seconds)}`;
   };
+
+  const formatDurationMs = (ms) => {
+    if (!ms) return "0m";
+    const totalSeconds = Math.floor(ms / 1000);
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    if (totalMinutes === 0) return `${totalSeconds}s`;
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours > 0) {
+      if (minutes > 0) return `${hours}h ${minutes}m`;
+      return `${hours}h`;
+    }
+    return `${minutes}m`;
+  };
+
+  const processChartData = (sessionsData, isCumulative) => {
+    if (!sessionsData) return [];
+    
+    let startDate = new Date();
+    startDate.setHours(0,0,0,0);
+    
+    if (lookbackDays !== 'all') {
+      startDate.setDate(startDate.getDate() - (lookbackDays - 1));
+    } else {
+      if (sessionsData.length > 0) {
+        // sessions are sorted by started_at descending, so last is earliest
+        const earliestStr = sessionsData[sessionsData.length-1].started_at;
+        const earliest = new Date(earliestStr);
+        startDate.setTime(earliest.getTime());
+        startDate.setHours(0,0,0,0);
+      } else {
+        startDate.setDate(startDate.getDate() - 30);
+      }
+    }
+
+    const dataByDate = {};
+    
+    if (lookbackDays <= 30 && lookbackDays !== 'all') {
+      for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
+        const key = d.toDateString();
+        dataByDate[key] = { 
+          date: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), 
+          timestamp: d.getTime()
+        };
+      }
+    }
+
+    sessionsData.forEach(s => {
+      const sDate = new Date(s.started_at);
+      if (sDate < startDate && lookbackDays !== 'all') return;
+      
+      sDate.setHours(0,0,0,0);
+      const key = sDate.toDateString();
+
+      if (!dataByDate[key]) {
+         dataByDate[key] = { 
+           date: sDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+           timestamp: sDate.getTime()
+         };
+      }
+      
+      const hours = s.duration_ms ? s.duration_ms / 3600000 : 0;
+      
+      if (isCumulative) {
+        const taskName = s.tasks?.name ? `${s.tasks.emoji} ${s.tasks.name}` : "Deleted Task";
+        if (!dataByDate[key][taskName]) dataByDate[key][taskName] = 0;
+        dataByDate[key][taskName] += hours;
+      } else {
+        if (!dataByDate[key]['Hours']) dataByDate[key]['Hours'] = 0;
+        dataByDate[key]['Hours'] += hours;
+      }
+    });
+
+    return Object.values(dataByDate).sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  const chartData = selectedTask ? processChartData(sessions, false) : processChartData(allSessions, true);
+  
+  const formatTooltip = (value) => {
+    const hrs = Math.floor(value);
+    const mins = Math.round((value - hrs) * 60);
+    if (hrs > 0 && mins > 0) return `${hrs}h ${mins}m`;
+    if (hrs > 0) return `${hrs}h`;
+    return `${mins}m`;
+  };
+
+  const uniqueTasksForChart = Array.from(new Set(allSessions.map(s => s.tasks?.name ? `${s.tasks.emoji} ${s.tasks.name}` : "Deleted Task")));
+  const COLORS = ['#5e6ad2', '#82ca9d', '#ffc658', '#f25c54', '#a4de6c', '#d0ed57', '#83a6ed', '#8dd1e1', '#f4a362', '#da70d6'];
+  const chartColors = {};
+  uniqueTasksForChart.forEach((task, idx) => {
+    chartColors[task] = COLORS[idx % COLORS.length];
+  });
 
   const handleStart = async () => {
     if (!selectedTask) return;
@@ -368,15 +489,70 @@ export default function Home() {
       {/* Main Content */}
       <main className="main-content">
         {!selectedTask ? (
-          <div className="empty-state">
-            <h2>Track Your Time</h2>
-            <p>Select a task from the sidebar or create a new one to begin.</p>
+          <div className="global-dashboard" style={{ width: '100%', maxWidth: '900px', margin: '0 auto' }}>
+            <div className="dashboard-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+              <h2>Global Overview</h2>
+              <div className="select-container">
+                <select className="premium-select" value={lookbackDays} onChange={e => setLookbackDays(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
+                  {lookbackOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            </div>
+            
+            <div className="stats-section" style={{ marginTop: '0', marginBottom: '2rem' }}>
+              <div className="stat-card">
+                <div className="stat-label">Today</div>
+                <div className="stat-value">{formatDurationMs(stats.today)}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">This Week</div>
+                <div className="stat-value">{formatDurationMs(stats.week)}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">This Month</div>
+                <div className="stat-value">{formatDurationMs(stats.month)}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">This Year</div>
+                <div className="stat-value">{formatDurationMs(stats.year)}</div>
+              </div>
+            </div>
+
+            <div className="chart-container" style={{ width: '100%', height: 400, background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--border-glass)' }}>
+              <h3 style={{ marginBottom: '1.5rem', fontSize: '1.1rem', color: 'var(--text-secondary)' }}>Cumulative Time Tracked</h3>
+              {isLoadingSessions ? <div className="loading">Loading chart data...</div> : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                  <XAxis dataKey="date" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} tickLine={false} axisLine={false} dy={10} minTickGap={20} />
+                  <YAxis stroke="var(--text-secondary)" tickFormatter={(val) => `${val}h`} tick={{fill: 'var(--text-secondary)'}} tickLine={false} axisLine={false} dx={-10} />
+                  <Tooltip 
+                    formatter={formatTooltip}
+                    contentStyle={{ backgroundColor: 'rgba(15, 15, 20, 0.95)', borderRadius: '8px', border: '1px solid var(--border-glass)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', color: 'var(--text-primary)' }}
+                    itemStyle={{ color: 'var(--text-primary)' }}
+                  />
+                  <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                  {uniqueTasksForChart.map(task => (
+                    <Bar key={task} dataKey={task} stackId="a" fill={chartColors[task]} radius={[0, 0, 0, 0]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+              )}
+            </div>
           </div>
         ) : (
           <div className="timer-panel">
-            <button className="mobile-back-btn" onClick={() => setSelectedTask(null)}>
-              ← Back to Tasks
-            </button>
+            <div className="timer-panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+               <button className="mobile-back-btn" onClick={() => setSelectedTask(null)}>
+                 ← Back to Tasks
+               </button>
+               <div className="select-container" style={{ marginLeft: 'auto', marginBottom: '1.5rem' }}>
+                 <select className="premium-select" value={lookbackDays} onChange={e => setLookbackDays(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
+                    {lookbackOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                 </select>
+               </div>
+            </div>
+
             <div className="timer-task-info">
               <span className="timer-emoji">{selectedTask.emoji || "🕒"}</span>
               <div className="timer-name">{selectedTask.name}</div>
@@ -418,20 +594,37 @@ export default function Home() {
             <div className="stats-section">
               <div className="stat-card">
                 <div className="stat-label">Today</div>
-                <div className="stat-value">{stats.today}h</div>
+                <div className="stat-value">{formatDurationMs(stats.today)}</div>
               </div>
               <div className="stat-card">
                 <div className="stat-label">This Week</div>
-                <div className="stat-value">{stats.week}h</div>
+                <div className="stat-value">{formatDurationMs(stats.week)}</div>
               </div>
               <div className="stat-card">
                 <div className="stat-label">This Month</div>
-                <div className="stat-value">{stats.month}h</div>
+                <div className="stat-value">{formatDurationMs(stats.month)}</div>
               </div>
               <div className="stat-card">
                 <div className="stat-label">This Year</div>
-                <div className="stat-value">{stats.year}h</div>
+                <div className="stat-value">{formatDurationMs(stats.year)}</div>
               </div>
+            </div>
+
+            <div className="chart-container" style={{ width: '100%', height: 300, marginTop: '2.5rem', marginBottom: '1rem', background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--border-glass)' }}>
+              <h3 style={{ marginBottom: '1rem', fontSize: '1.1rem', color: 'var(--text-secondary)', textAlign: 'left' }}>Time Tracked Over Time</h3>
+              <ResponsiveContainer width="100%" height="80%">
+                <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                  <XAxis dataKey="date" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontSize: 12}} tickLine={false} axisLine={false} dy={5} minTickGap={20} />
+                  <YAxis stroke="var(--text-secondary)" tickFormatter={(val) => `${val}h`} tick={{fill: 'var(--text-secondary)', fontSize: 12}} tickLine={false} axisLine={false} dx={-5} />
+                  <Tooltip 
+                    formatter={formatTooltip}
+                    contentStyle={{ backgroundColor: 'rgba(15, 15, 20, 0.95)', borderRadius: '8px', border: '1px solid var(--border-glass)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', color: 'var(--text-primary)' }}
+                    itemStyle={{ color: 'var(--accent)' }}
+                  />
+                  <Bar dataKey="Hours" fill="var(--accent)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
 
             <div className="history-section">
@@ -455,13 +648,12 @@ export default function Home() {
                     {sessions.slice(0, 20).map((s) => {
                       const start = new Date(s.started_at);
                       const end = s.ended_at ? new Date(s.ended_at) : null;
-                      const hrs = s.duration_ms ? (s.duration_ms / 3600000).toFixed(2) : "0.00";
                       return (
                         <tr key={s.id}>
                           <td>{start.toLocaleDateString()}</td>
                           <td>{start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
                           <td>{end ? end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
-                          <td>{hrs} h</td>
+                          <td>{formatDurationMs(s.duration_ms)}</td>
                           <td>
                             <div className="action-btns">
                               <button className="icon-btn" onClick={() => openEditModal(s)} title="Edit">✎</button>

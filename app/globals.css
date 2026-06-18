@@ -398,6 +398,7 @@ input:focus {
 .history-section {
   margin-top: 2.5rem;
   text-align: left;
+  overflow-x: auto;
 }
 
 .history-section h3 {
@@ -433,11 +434,13 @@ input:focus {
   font-weight: 500;
   border-bottom: 1px solid var(--border-glass);
   background: rgba(255,255,255,0.02);
+  white-space: nowrap;
 }
 
 .history-table td {
   padding: 0.875rem 1rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  white-space: nowrap;
 }
 
 .history-table tr:last-child td {
@@ -634,4 +637,50 @@ input:focus {
   background: rgba(207, 79, 79, 0.2);
   color: var(--danger);
   border-color: var(--danger);
+}
+
+/* Premium Select styles */
+.select-container {
+  position: relative;
+  display: inline-block;
+}
+
+.select-container::after {
+  content: '▼';
+  position: absolute;
+  top: 50%;
+  right: 1rem;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  pointer-events: none;
+  font-size: 0.8rem;
+}
+
+.premium-select {
+  appearance: none;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-glass);
+  color: var(--text-primary);
+  padding: 0.5rem 2.5rem 0.5rem 1rem;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  outline: none;
+}
+
+.premium-select:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent);
+}
+
+.premium-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(94, 106, 210, 0.2);
+}
+
+.premium-select option {
+  background: var(--bg);
+  color: var(--text-primary);
 }
