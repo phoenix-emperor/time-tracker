@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { getTasks, createTask, deleteTask, createSession, endSession, getSessionsForTask } from "@/lib/db";
+import { getTasks, createTask, deleteTask, createSession, endSession, getSessionsForTask, addManualSession, updateSession, deleteSession } from "@/lib/db";
 
 const AVAILABLE_EMOJIS = ["🕒", "🚀", "💻", "📚", "🎨", "🎵", "🏋️", "🧘", "🔧", "🍳", "🎮", "📝", "📊", "📞", "🤝", "💡"];
 
@@ -29,6 +29,14 @@ export default function Home() {
   const [sessions, setSessions] = useState([]);
   const [stats, setStats] = useState({ today: 0, week: 0, month: 0, year: 0 });
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+
+  // Modal state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalSubmitting, setIsModalSubmitting] = useState(false);
+  const [modalMode, setModalMode] = useState("add"); // "add" or "edit"
+  const [modalSessionId, setModalSessionId] = useState(null);
+  const [modalDatetime, setModalDatetime] = useState("");
+  const [modalDuration, setModalDuration] = useState("");
 
   useEffect(() => {
     async function loadTasks() {
@@ -217,6 +225,62 @@ export default function Home() {
     }
   };
 
+  const toLocalIso = (date) => {
+    const d = new Date(date);
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  };
+
+  const openAddModal = () => {
+    setModalMode("add");
+    setModalSessionId(null);
+    setModalDatetime(toLocalIso(new Date()));
+    setModalDuration("");
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (session) => {
+    setModalMode("edit");
+    setModalSessionId(session.id);
+    setModalDatetime(toLocalIso(session.started_at));
+    setModalDuration(session.duration_ms ? Math.round(session.duration_ms / 60000).toString() : "0");
+    setIsModalOpen(true);
+  };
+
+  const handleModalSubmit = async (e) => {
+    e.preventDefault();
+    if (!modalDatetime || !modalDuration) return;
+    setIsModalSubmitting(true);
+    
+    try {
+      const startedAt = new Date(modalDatetime).toISOString();
+      const durationMs = parseInt(modalDuration) * 60000;
+      const endedAt = new Date(new Date(startedAt).getTime() + durationMs).toISOString();
+
+      if (modalMode === "add") {
+        await addManualSession(selectedTask.id, startedAt, endedAt, durationMs);
+      } else if (modalMode === "edit" && modalSessionId) {
+        await updateSession(modalSessionId, startedAt, endedAt, durationMs);
+      }
+      setIsModalOpen(false);
+      await loadSessions(selectedTask.id);
+    } catch (error) {
+      console.error("Error submitting manual session:", error);
+    } finally {
+      setIsModalSubmitting(false);
+    }
+  };
+
+  const handleRemoveSession = async (sessionId) => {
+    if (!window.confirm("Are you sure you want to delete this logged session?")) return;
+    try {
+      await deleteSession(sessionId);
+      await loadSessions(selectedTask.id);
+    } catch (error) {
+      console.error("Error deleting session:", error);
+    }
+  };
+
   return (
     <div className={`layout-container ${selectedTask ? "has-selected-task" : ""}`}>
       {/* Sidebar */}
@@ -343,6 +407,11 @@ export default function Home() {
                   Stop
                 </button>
               )}
+              {timerStatus === "idle" && (
+                <button className="btn" style={{ background: "rgba(255,255,255,0.1)", border: "1px solid var(--border-glass)" }} onClick={openAddModal}>
+                  + Add Manual Time
+                </button>
+              )}
             </div>
 
             {/* Stats and History */}
@@ -379,6 +448,7 @@ export default function Home() {
                       <th>Start</th>
                       <th>End</th>
                       <th>Duration</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -392,6 +462,12 @@ export default function Home() {
                           <td>{start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
                           <td>{end ? end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
                           <td>{hrs} h</td>
+                          <td>
+                            <div className="action-btns">
+                              <button className="icon-btn" onClick={() => openEditModal(s)} title="Edit">✎</button>
+                              <button className="icon-btn delete-icon" onClick={() => handleRemoveSession(s.id)} title="Delete">✕</button>
+                            </div>
+                          </td>
                         </tr>
                       );
                     })}
@@ -402,6 +478,51 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      {/* Manual Time Modal */}
+      {isModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{modalMode === "add" ? "Add Manual Time" : "Edit Tracked Time"}</h3>
+              <button className="close-btn" onClick={() => setIsModalOpen(false)}>✕</button>
+            </div>
+            
+            <form onSubmit={handleModalSubmit} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+              <div className="form-group">
+                <label>Start Date & Time</label>
+                <input 
+                  type="datetime-local" 
+                  value={modalDatetime} 
+                  onChange={(e) => setModalDatetime(e.target.value)} 
+                  required 
+                />
+              </div>
+              <div className="form-group">
+                <label>Duration (Minutes)</label>
+                <input 
+                  type="number" 
+                  min="1" 
+                  value={modalDuration} 
+                  onChange={(e) => setModalDuration(e.target.value)} 
+                  placeholder="e.g. 60"
+                  required 
+                />
+              </div>
+              
+              <div className="modal-actions">
+                <button type="button" className="btn" style={{ background: "rgba(255,255,255,0.05)" }} onClick={() => setIsModalOpen(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn primary" disabled={isModalSubmitting}>
+                  {isModalSubmitting ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
